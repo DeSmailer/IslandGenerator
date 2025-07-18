@@ -20,13 +20,15 @@ public class SteppedIslandGenerator : MonoBehaviour {
     int vertsX = resolution + 1;
     int vertsZ = resolution + 1;
 
-    // Храним временно все вершины и landMask
+    // Временные массивы
     Vector3[] allVertices = new Vector3[vertsX * vertsZ];
     bool[] isLand = new bool[vertsX * vertsZ];
     float offsetX = Random.value * 1000f;
     float offsetZ = Random.value * 1000f;
 
-    // Генерируем вершины и landMask
+    float landThreshold = 0.25f; // подбирай под свой визуал
+
+    // Генерация вершин и mask
     for (int z = 0; z < vertsZ; z++) {
       for (int x = 0; x < vertsX; x++) {
         float fx = (float)x / resolution;
@@ -41,8 +43,10 @@ public class SteppedIslandGenerator : MonoBehaviour {
           Mathf.Sin(angle) * shapeNoiseScale + offsetZ
         ) * shapeNoiseStrength;
 
-        float mask = Mathf.Clamp01(1f - distNorm + shapeNoise);
-        mask = Mathf.SmoothStep(0, 1, mask);
+        float maskRaw = 1f - distNorm + shapeNoise;
+        float mask = maskRaw > 0 ? Mathf.SmoothStep(0, 1, maskRaw) : 0f;
+        float edgeMargin = 0.08f; // поиграйся с этим
+        isLand[z * vertsX + x] = mask > (landThreshold - edgeMargin);
 
         float noise = Mathf.PerlinNoise(px * noiseScale + offsetX, pz * noiseScale + offsetZ);
         float heightRaw = noise * mask * maxHeight;
@@ -53,15 +57,14 @@ public class SteppedIslandGenerator : MonoBehaviour {
           quantized = maxHeight;
 
         allVertices[z * vertsX + x] = new Vector3(px, quantized, pz);
-        isLand[z * vertsX + x] = mask > 0.05f; // только суша
       }
     }
 
-    // Список финальных вершин и ремап
+    // Чистые вершины и ремап
     List<Vector3> finalVertices = new List<Vector3>();
     Dictionary<int, int> vertRemap = new Dictionary<int, int>();
 
-    // Собираем треугольники, только если все 3 вершины — суша
+    // Треугольники только внутри острова
     List<int> finalTriangles = new List<int>();
     for (int z = 0; z < resolution; z++) {
       for (int x = 0; x < resolution; x++) {
@@ -86,7 +89,7 @@ public class SteppedIslandGenerator : MonoBehaviour {
       }
     }
 
-    // Создаем меш
+    // Меш
     Mesh mesh = new Mesh();
     mesh.indexFormat = finalVertices.Count > 65000
       ? UnityEngine.Rendering.IndexFormat.UInt32
@@ -98,7 +101,7 @@ public class SteppedIslandGenerator : MonoBehaviour {
     GetComponent<MeshFilter>().mesh = mesh;
   }
 
-  // Добавляет вершину если её ещё нет, возвращает индекс в finalVertices
+  // Ремап вершин
   static int GetOrAddVertex(int idx, Vector3[] allVertices, List<Vector3> finalVertices, Dictionary<int, int> remap) {
     if (remap.TryGetValue(idx, out int found)) return found;
     int newIndex = finalVertices.Count;
