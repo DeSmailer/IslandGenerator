@@ -11,7 +11,7 @@ public class IslandGenerator : MonoBehaviour {
   public Transform parentResources;
   public Transform parentEnemies;
 
-  [ContextMenu("Generate Island")]
+  [ContextMenu("Generate")]
   public void GenerateIsland() {
     // Очистка предыдущего
     foreach (Transform child in parentResources) DestroyImmediate(child.gameObject);
