@@ -59,11 +59,16 @@ public class ClusterIslandGenerator : MonoBehaviour {
         Vector3 pos = new Vector3(px, h, pz);
         vertices[z * vertsX + x] = pos;
 
-        if (h > 0f)
-          ValidLandPoints.Add(pos);
+        // Минимальное расстояние от края (например, не ближе 1.0f к краю)
+        float minEdgeMargin = 5.0f;
 
-        if (z == resolution / 2 && x == resolution / 2)
-          Debug.Log($"Height в центре: {h}");
+// Дистанция от центра
+        float r = Mathf.Sqrt(px * px + pz * pz);
+// Максимальный радиус острова (или зоны генерации)
+        float maxIslandRadius = islandSize * 0.5f;
+
+        if (h > 0.01f && r < (maxIslandRadius - minEdgeMargin))
+          ValidLandPoints.Add(pos);
       }
     }
 
