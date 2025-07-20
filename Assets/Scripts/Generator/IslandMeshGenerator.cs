@@ -26,6 +26,7 @@ public class ClusterIslandGenerator : MonoBehaviour {
     int[] triangles = new int[resolution * resolution * 6];
     ValidLandPoints.Clear();
 
+    // 1. Генерация высот
     for (int z = 0; z < vertsZ; z++) {
       for (int x = 0; x < vertsX; x++) {
         float px = (x - vertsX * 0.5f) / resolution * islandSize;
@@ -58,20 +59,46 @@ public class ClusterIslandGenerator : MonoBehaviour {
 
         Vector3 pos = new Vector3(px, h, pz);
         vertices[z * vertsX + x] = pos;
-
-        // Минимальное расстояние от края (например, не ближе 1.0f к краю)
-        float minEdgeMargin = 5.0f;
-
-// Дистанция от центра
-        float r = Mathf.Sqrt(px * px + pz * pz);
-// Максимальный радиус острова (или зоны генерации)
-        float maxIslandRadius = islandSize * 0.5f;
-
-        if (h > 0.01f && r < (maxIslandRadius - minEdgeMargin))
-          ValidLandPoints.Add(pos);
       }
     }
 
+    // 2. Создаём карту "суша/не суша" для быстрого анализа окрестностей
+    float minLandHeight = 0.01f;
+    float minEdgeMargin = 1.0f;
+    float maxIslandRadius = islandSize * 0.5f;
+    bool[,] isLand = new bool[vertsX, vertsZ];
+
+    for (int z = 0; z < vertsZ; z++)
+      for (int x = 0; x < vertsX; x++) {
+        var pos = vertices[z * vertsX + x];
+        float px = pos.x;
+        float pz = pos.z;
+        float h = pos.y;
+        float r = Mathf.Sqrt(px * px + pz * pz);
+        isLand[x, z] = h > minLandHeight && r < (maxIslandRadius - minEdgeMargin);
+      }
+
+    // 3. Только те точки, вокруг которых в радиусе 2 клеток вся суша
+    int checkRadius = 2;
+    for (int z = checkRadius; z < vertsZ - checkRadius; z++) {
+      for (int x = checkRadius; x < vertsX - checkRadius; x++) {
+        if (!isLand[x, z]) continue;
+
+        bool allDeepLand = true;
+        for (int dz = -checkRadius; dz <= checkRadius && allDeepLand; dz++)
+          for (int dx = -checkRadius; dx <= checkRadius; dx++) {
+            if (!isLand[x + dx, z + dz]) {
+              allDeepLand = false;
+              break;
+            }
+          }
+
+        if (allDeepLand)
+          ValidLandPoints.Add(vertices[z * vertsX + x]);
+      }
+    }
+
+    // 4. Меш
     int ti = 0;
     for (int z = 0; z < resolution; z++) {
       for (int x = 0; x < resolution; x++) {
