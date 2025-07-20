@@ -3,69 +3,66 @@ using UnityEngine;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
-public class SteppedIslandGenerator : MonoBehaviour {
-  public int resolution = 40;
-  public float islandSize = 50f;
-  public int levels = 4;
-  public float maxHeight = 10f;
-  public float noiseScale = 0.12f;
+public class ClusterIslandGenerator : MonoBehaviour {
+  [Header("Seed")] public int seed = 0;
 
-  [Header("Shape randomization")] public float shapeNoiseScale = 1.2f;
-  public float shapeNoiseStrength = 0.25f;
-  public int shapeSeed = 0;
+  [Header("Clusters")] public int minClusters = 1, maxClusters = 5;
+  public float minRadius = 4f, maxRadius = 7f;
+  public float minHeight = 1.5f, maxHeight = 3.5f;
+  public float minDist = 6f, maxDist = 12f;
+
+  [Header("Island Mesh")] public int resolution = 64;
+  public float islandSize = 24f;
+
+  [Header("Plateau shape")] [Range(0.5f, 0.98f)]
+  public float plateauPercent = 0.8f; // Доля радиуса с плоской вершиной
 
   [Button("Generate")]
   public void Generate() {
-    Random.InitState(shapeSeed);
+    var clusters = GenerateClusters(seed, minClusters, maxClusters, minRadius, maxRadius, minHeight, maxHeight, minDist,
+      maxDist);
+
     int vertsX = resolution + 1;
     int vertsZ = resolution + 1;
+    Vector3[] vertices = new Vector3[vertsX * vertsZ];
+    int[] triangles = new int[resolution * resolution * 6];
 
-    // Временные массивы
-    Vector3[] allVertices = new Vector3[vertsX * vertsZ];
-    bool[] isLand = new bool[vertsX * vertsZ];
-    float offsetX = Random.value * 1000f;
-    float offsetZ = Random.value * 1000f;
-
-    float landThreshold = 0.25f; // подбирай под свой визуал
-
-    // Генерация вершин и mask
     for (int z = 0; z < vertsZ; z++) {
       for (int x = 0; x < vertsX; x++) {
-        float fx = (float)x / resolution;
-        float fz = (float)z / resolution;
-        float px = (fx - 0.5f) * islandSize;
-        float pz = (fz - 0.5f) * islandSize;
+        float px = (x - vertsX * 0.5f) / resolution * islandSize;
+        float pz = (z - vertsZ * 0.5f) / resolution * islandSize;
+        Vector2 p = new Vector2(px, pz);
 
-        float distNorm = Mathf.Sqrt(px * px + pz * pz) / (islandSize * 0.5f);
-        float angle = Mathf.Atan2(pz, px);
-        float shapeNoise = Mathf.PerlinNoise(
-          Mathf.Cos(angle) * shapeNoiseScale + offsetX,
-          Mathf.Sin(angle) * shapeNoiseScale + offsetZ
-        ) * shapeNoiseStrength;
+        float h = 0f;
+        foreach (var cluster in clusters) {
+          Vector2 delta = p - cluster.center;
+          float dist = delta.magnitude;
 
-        float maskRaw = 1f - distNorm + shapeNoise;
-        float mask = maskRaw > 0 ? Mathf.SmoothStep(0, 1, maskRaw) : 0f;
-        float edgeMargin = 0.08f; // поиграйся с этим
-        isLand[z * vertsX + x] = mask > (landThreshold - edgeMargin);
+          // Индивидуальный edge noise для формы плато
+          float angle = Mathf.Atan2(delta.y, delta.x);
+          float edgeNoise = Mathf.PerlinNoise(
+            Mathf.Cos(angle) * cluster.noiseScale + cluster.noiseOffset,
+            Mathf.Sin(angle) * cluster.noiseScale + cluster.noiseOffset
+          ) * cluster.noiseStrength;
+          float effectiveRadius = cluster.radius * (1f + edgeNoise);
 
-        float noise = Mathf.PerlinNoise(px * noiseScale + offsetX, pz * noiseScale + offsetZ);
-        float heightRaw = noise * mask * maxHeight;
+          if (dist > effectiveRadius) continue;
 
-        float step = maxHeight / levels;
-        float quantized = Mathf.Floor(heightRaw / step) * step;
-        if (quantized > (levels - 2) * step)
-          quantized = maxHeight;
+          float plateauPart = effectiveRadius * plateauPercent;
+          if (dist < plateauPart) {
+            h = Mathf.Max(h, cluster.height);
+          }
+          else {
+            float t = Mathf.InverseLerp(effectiveRadius, plateauPart, dist);
+            h = Mathf.Max(h, Mathf.Lerp(0, cluster.height, 1 - t));
+          }
+        }
 
-        allVertices[z * vertsX + x] = new Vector3(px, quantized, pz);
+        vertices[z * vertsX + x] = new Vector3(px, h, pz);
       }
     }
 
-    // Чистые вершины и ремап
-    List<Vector3> finalVertices = new List<Vector3>();
-    Dictionary<int, int> vertRemap = new Dictionary<int, int>();
-
-    // Треугольники только внутри острова
-    List<int> finalTriangles = new List<int>();
+    int ti = 0;
     for (int z = 0; z < resolution; z++) {
       for (int x = 0; x < resolution; x++) {
         int i0 = z * vertsX + x;
@@ -73,47 +70,69 @@ public class SteppedIslandGenerator : MonoBehaviour {
         int i2 = (z + 1) * vertsX + x;
         int i3 = (z + 1) * vertsX + x + 1;
 
-        // Первый треугольник
-        if (isLand[i0] && isLand[i2] && isLand[i1]) {
-          finalTriangles.Add(GetOrAddVertex(i0, allVertices, finalVertices, vertRemap));
-          finalTriangles.Add(GetOrAddVertex(i2, allVertices, finalVertices, vertRemap));
-          finalTriangles.Add(GetOrAddVertex(i1, allVertices, finalVertices, vertRemap));
-        }
-
-        // Второй треугольник
-        if (isLand[i1] && isLand[i2] && isLand[i3]) {
-          finalTriangles.Add(GetOrAddVertex(i1, allVertices, finalVertices, vertRemap));
-          finalTriangles.Add(GetOrAddVertex(i2, allVertices, finalVertices, vertRemap));
-          finalTriangles.Add(GetOrAddVertex(i3, allVertices, finalVertices, vertRemap));
-        }
+        triangles[ti++] = i0;
+        triangles[ti++] = i2;
+        triangles[ti++] = i1;
+        triangles[ti++] = i1;
+        triangles[ti++] = i2;
+        triangles[ti++] = i3;
       }
     }
 
-    // Меш
     Mesh mesh = new Mesh();
-    mesh.indexFormat = finalVertices.Count > 65000
-      ? UnityEngine.Rendering.IndexFormat.UInt32
-      : UnityEngine.Rendering.IndexFormat.UInt16;
-    mesh.vertices = finalVertices.ToArray();
-    mesh.triangles = finalTriangles.ToArray();
+    mesh.vertices = vertices;
+    mesh.triangles = triangles;
     mesh.RecalculateNormals();
-    mesh.RecalculateBounds();
     GetComponent<MeshFilter>().mesh = mesh;
   }
 
-  // Ремап вершин
-  static int GetOrAddVertex(int idx, Vector3[] allVertices, List<Vector3> finalVertices, Dictionary<int, int> remap) {
-    if (remap.TryGetValue(idx, out int found)) return found;
-    int newIndex = finalVertices.Count;
-    finalVertices.Add(allVertices[idx]);
-    remap[idx] = newIndex;
-    return newIndex;
+  List<IslandCluster> GenerateClusters(int seed, int minClusters, int maxClusters, float minRadius, float maxRadius,
+    float minHeight, float maxHeight, float minDist, float maxDist) {
+    var clusters = new List<IslandCluster>();
+    Random.InitState(seed);
+
+    int count = Random.Range(minClusters, maxClusters + 1);
+    clusters.Add(new IslandCluster {
+      center = Vector2.zero,
+      radius = Random.Range(minRadius, maxRadius),
+      height = Random.Range(minHeight, maxHeight),
+      noiseScale = Random.Range(0.7f, 1.4f),
+      noiseStrength = Random.Range(0.08f, 0.25f),
+      noiseOffset = Random.Range(0, 1000f)
+    });
+
+    for (int i = 1; i < count; i++) {
+      float angle = Random.value * Mathf.PI * 2f;
+      float dist = Random.Range(minDist, maxDist);
+      Vector2 pos = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * dist;
+
+      clusters.Add(new IslandCluster {
+        center = pos,
+        radius = Random.Range(minRadius, maxRadius),
+        height = Random.Range(minHeight, maxHeight),
+        noiseScale = Random.Range(0.7f, 1.4f),
+        noiseStrength = Random.Range(0.08f, 0.25f),
+        noiseOffset = Random.Range(0, 1000f)
+      });
+    }
+
+    return clusters;
+  }
+
+  [System.Serializable]
+  public struct IslandCluster {
+    public Vector2 center;
+    public float radius;
+    public float height;
+    public float noiseScale;
+    public float noiseStrength;
+    public float noiseOffset;
   }
 
 #if UNITY_EDITOR
-  [Button("Generate Random Seed")]
-  void EditorGenRandom() {
-    shapeSeed++;
+  [Button("Next Seed")]
+  public void NextSeed() {
+    seed++;
     Generate();
   }
 #endif
