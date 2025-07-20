@@ -1,40 +1,52 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class IslandGenerator : MonoBehaviour {
-  public float islandRadius = 20f;
-  public int resourceCount = 50;
+public class IslandResourceSpawner : MonoBehaviour {
   public GameObject[] resourcePrefabs;
-  public GameObject[] enemyPrefabs;
-  public int enemiesPerResource = 1;
+  public int minResources = 10, maxResources = 20;
+  public float minDistanceBetweenResources = 1.5f;
+  public ClusterIslandGenerator island;
 
-  public Transform parentResources;
-  public Transform parentEnemies;
-
-  [ContextMenu("Generate")]
-  public void GenerateIsland() {
-    // Очистка предыдущего
-    foreach (Transform child in parentResources) DestroyImmediate(child.gameObject);
-    foreach (Transform child in parentEnemies) DestroyImmediate(child.gameObject);
-
-    // Спавн ресурсов
-    List<Vector3> resourcePositions = new List<Vector3>();
-    for (int i = 0; i < resourceCount; i++) {
-      Vector2 pos2D = Random.insideUnitCircle * islandRadius;
-      Vector3 pos = new Vector3(pos2D.x, 0, pos2D.y);
-      var prefab = resourcePrefabs[Random.Range(0, resourcePrefabs.Length)];
-      var go = Instantiate(prefab, pos, Quaternion.identity, parentResources);
-      resourcePositions.Add(pos);
+  public void SpawnResources() {
+    if (resourcePrefabs == null || resourcePrefabs.Length == 0) return;
+    if (island == null || island.ValidLandPoints == null || island.ValidLandPoints.Count == 0) {
+      Debug.LogWarning("No valid points to spawn resources. Generate island first.");
+      return;
     }
 
-    // Спавн врагов рядом с ресурсами
-    foreach (var resourcePos in resourcePositions) {
-      for (int i = 0; i < enemiesPerResource; i++) {
-        Vector2 offset = Random.insideUnitCircle.normalized * Random.Range(2f, 4f); // 2-4 метра от ресурса
-        Vector3 enemyPos = resourcePos + new Vector3(offset.x, 0, offset.y);
-        var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Length)];
-        Instantiate(prefab, enemyPos, Quaternion.identity, parentEnemies);
+    // Удаляем старые ресурсы
+#if UNITY_EDITOR
+    foreach (Transform child in transform)
+      if (child.gameObject.name.StartsWith("Resource_"))
+        DestroyImmediate(child.gameObject);
+#else
+        foreach (Transform child in transform)
+            if (child.gameObject.name.StartsWith("Resource_"))
+                Destroy(child.gameObject);
+#endif
+
+    int numResources = Random.Range(minResources, maxResources + 1);
+    var used = new List<Vector3>();
+    int attempts = 0;
+    int maxAttempts = island.ValidLandPoints.Count * 5;
+    while (used.Count < numResources && attempts < maxAttempts) {
+      var pos = island.ValidLandPoints[Random.Range(0, island.ValidLandPoints.Count)];
+      bool tooClose = false;
+      foreach (var u in used)
+        if ((u - pos).sqrMagnitude < minDistanceBetweenResources * minDistanceBetweenResources) {
+          tooClose = true;
+          break;
+        }
+
+      if (!tooClose) {
+        var prefab = resourcePrefabs[Random.Range(0, resourcePrefabs.Length)];
+        var go = Instantiate(prefab, transform);
+        go.name = "Resource_" + go.name;
+        go.transform.position = transform.TransformPoint(pos);
+        used.Add(pos);
       }
+
+      attempts++;
     }
   }
 }
