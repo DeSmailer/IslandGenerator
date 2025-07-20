@@ -14,7 +14,7 @@ public class ClusterIslandGenerator : MonoBehaviour {
   [Header("Plateau shape")] [Range(0.5f, 0.98f)]
   public float plateauPercent = 0.8f;
 
-  public List<Vector3> ValidLandPoints { get; private set; } = new List<Vector3>();
+  public List<Vector3> ValidLandPoints = new List<Vector3>();
 
   public void Generate() {
     var clusters = GenerateClusters(seed, minClusters, maxClusters, minRadius, maxRadius, minHeight, maxHeight, minDist,
@@ -59,8 +59,11 @@ public class ClusterIslandGenerator : MonoBehaviour {
         Vector3 pos = new Vector3(px, h, pz);
         vertices[z * vertsX + x] = pos;
 
-        if (h > 0.01f)
+        if (h > 0f)
           ValidLandPoints.Add(pos);
+
+        if (z == resolution / 2 && x == resolution / 2)
+          Debug.Log($"Height в центре: {h}");
       }
     }
 
